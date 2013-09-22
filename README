@@ -1,0 +1,7 @@
+you can specifiy those optional fields in dhcp.conf
+
+remote:XXXXXXXX
+circuit:XXXXXXXX
+where XXXXXXXX - raw hex representation, two characters per byte
+for circuit id and remote id from option 82
+also relay field (ip) for dlink is now optional

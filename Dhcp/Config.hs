@@ -91,7 +91,7 @@ lease_raw :: Parser [DhcpLease]
 lease_raw = do
     string "raw82" <* blank
     tmap <- tokenMap
-    let circuit = lookupTokenMap tmap "option82" rawhex
+    let circuit = lookupTokenMap tmap "circuit" rawhex
         remote  = lookupTokenMap tmap "remote" rawhex
         router = findTokenMap tmap "gw" ip
         dns    = findTokenMap tmap "dns" ip
@@ -161,7 +161,7 @@ mkLeaseEdge dl_router dl_remote dl_dns vlan dl_mask port dl_client = DhcpLease{.
         dl_relay :: Maybe HostAddress
         dl_relay = Nothing
         dl_circuit :: Maybe ByteString
-        dl_circuit = Just $ B.pack [0, 4, vl, an, 0, port]
+        dl_circuit = Just $ B.pack [0, 4, vl, an, 1, port]
         vl = fromIntegral $ vlan `div` 256
         an = fromIntegral $ vlan `mod` 256
 
