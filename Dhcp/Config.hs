@@ -1,20 +1,22 @@
-module Dhcp.Config ( getLeases 
-                   , initLeases 
+{-# LANGUAGE OverloadedStrings, RecordWildCards #-}
+module Dhcp.Config ( getLeases
+                   , initLeases
                    ) where
 
 import Control.Applicative
 import Control.Concurrent.STM
 import Control.Concurrent.STM.TVar
 import Data.Attoparsec as A
-import Data.Attoparsec.Char8 (decimal, isSpace_w8, space, char)
+import Data.Attoparsec.Char8 (decimal, isSpace_w8, space, char, peekChar)
 import Data.Bits
 import Data.ByteString (ByteString)
-import Dhcp.Types
+import Data.Char
+import Data.Map (Map)
 import Data.Word
+import Dhcp.Types
 import Network.Socket
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Char8 as C8
-import Data.Map (Map)
 import qualified Data.Map as M
 
 type LeaseDB = [DhcpLease]
@@ -24,7 +26,7 @@ getLeases = undefined
 {-    newTVarIO
 -}
 
-initLeases :: IO [DhcpLease]
+initLeases :: IO LeaseDB
 initLeases = do
         file <- B.readFile "dhcp.conf"
         case (feed (parse leasesLines file) B.empty) of

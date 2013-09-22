@@ -139,7 +139,7 @@ dhcp = do
 
 allDhcpOptions :: ByteString -> ByteString -> Parser [DhcpOption]
 allDhcpOptions sname file = do
-        main_options <- cleanOptions <$> A.many dhcpOption
+        main_options <- cleanOptions <$> many dhcpOption
         overloaded_options <- case (getOptionOverload main_options) of
             (Just OverloadFile) -> cleanOptions <$> parseOptions file
             (Just OverloadSname) -> cleanOptions <$> parseOptions sname
@@ -217,11 +217,10 @@ dhcpOption = (A.choice possibleOptions <|> unknownOption)
 
 
 parseOptions :: ByteString -> Parser [DhcpOption]
-parseOptions s = 
-        case (feed (parse (A.many dhcpOption) s) B.empty) of
-            (Done _ result) -> return result
-            (Fail _ _ e)    -> fail e
-            (Partial _)     -> fail "WTF!?"
+parseOptions s =
+        case parseOnly (many dhcpOption) s of
+            Right result -> return result
+            Left e       -> fail e
 
 cleanOptions :: [DhcpOption] -> [DhcpOption]
 cleanOptions = (filter (/= Padding)) . (Prelude.takeWhile (/= End))
