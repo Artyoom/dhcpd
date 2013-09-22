@@ -35,22 +35,67 @@ initLeases = do
             Fail _ _ msg -> error $ "Failed to read dhcp.conf: " ++ msg
 
 leasesLines :: Parser [DhcpLease]
-leasesLines = concat <$> A.many (leases <* word8 10)
+leasesLines = concat <$> many (leases <* word8 10)
 
 leases :: Parser [DhcpLease]
-leases = lease_dlink
+leases = lease_dlink <|> lease_raw <|> lease_edge
 
 lease_dlink :: Parser [DhcpLease]
 lease_dlink = do
-    string (C8.pack "dlink") <* blank
+    string "dlink" <* blank
     relay   <-  token "ip"     (i2h <$> ip)
     vlan    <-  token "vlan"   decimal
     router  <-  token "gw"     ip
     dns     <-  token "dns"    ip
     ports   <-  token "ports"  portSpec
     base    <-  token_l "base" ip
-    mask    <-  char '/' *> decimal 
+    mask    <-  char '/' *> decimal
     return $ zipWith (mkLeaseDlink relay router dns vlan mask) ports (zipWith addToIP (map pred ports) (repeat base))
+
+lease_edge :: Parser [DhcpLease]
+lease_edge = do
+    string "edge" <* blank
+    vlan    <-  token "vlan"   decimal
+    router  <-  token "gw"     ip
+    dns     <-  token "dns"    ip
+    ports   <-  token "ports"  portSpec
+    base    <-  token_l "base" ip
+    mask    <-  char '/' *> decimal
+    return $ zipWith (mkLeaseEdge router dns vlan mask) ports (zipWith addToIP (map pred ports) (repeat base))
+
+lease_raw :: Parser [DhcpLease]
+lease_raw = do
+    string "raw82" <* blank
+    circuit <- token "option82" rawhex
+    router  <- token "gw"     ip
+    dns     <- token "dns"    ip
+    client  <- token_l "client" ip
+    mask    <- char '/' *> decimal
+    return [mkLeaseRaw circuit router dns mask client]
+
+
+rawhex :: Parser ByteString
+rawhex = do
+    c <- peekChar
+    case c of
+        Just c | c `elem` "\t " -> return B.empty
+        Just c -> do
+                c1 <- anyWord8
+                c2 <- anyWord8
+                rest <- rawhex
+                return $ B.cons (16 * (hex2dec c1) + hex2dec c2) rest
+        _ -> return B.empty
+
+hex2dec :: Word8 -> Word8
+hex2dec c = case () of
+                _ | c >= ord_ '0' && c <= ord_ '9' -> c - ord_ '0'
+                  | c >= ord_ 'a' && c <= ord_ 'f' -> 10 + c - ord_ 'a'
+                  | c >= ord_ 'A' && c <= ord_ 'F' -> 10 + c - ord_ 'A'
+                  | otherwise -> error $ "invalid hex character: " ++ show (chr $ fromIntegral c)
+
+    where
+        ord_ :: Char -> Word8
+        ord_ = fromIntegral . ord
 
 token :: String -> Parser t -> Parser t
 token prefix p = string (C8.pack (prefix ++ ":")) *> p <* blank
@@ -94,6 +139,23 @@ mkLeaseDlink    relay         router dns  vlan    mask     port  client = DhcpLe
         vl = fromIntegral $ vlan `div` 256
         an = fromIntegral $ vlan `mod` 256
 
+
+
+mkLeaseEdge :: IP -> IP -> Int -> Word8 -> Word8 -> IP -> DhcpLease
+mkLeaseEdge dl_router dl_dns vlan dl_mask port dl_client = DhcpLease{..}
+    where
+        dl_relay :: Maybe HostAddress
+        dl_relay = Nothing
+        dl_circuit :: ByteString
+        dl_circuit = B.pack [0, 4, vl, an, 0, port]
+        vl = fromIntegral $ vlan `div` 256
+        an = fromIntegral $ vlan `mod` 256
+
+
+mkLeaseRaw :: ByteString -> IP -> IP -> Word8 -> IP -> DhcpLease
+mkLeaseRaw dl_circuit dl_router dl_dns dl_mask dl_client = DhcpLease {..}
+    where
+        dl_relay = Nothing
 
 
 flipbytes :: HostAddress -> HostAddress
