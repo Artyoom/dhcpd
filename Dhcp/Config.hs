@@ -81,7 +81,7 @@ ipSpec = (\(IPv4 a) (IPv4 z) -> map IPv4 [a..z]) <$> ip <* dash <*> ip
 
 mkLeaseDlink :: HostAddress -> IP -> IP -> Int -> Word8 -> Word8 -> IP -> DhcpLease
 mkLeaseDlink    relay         router dns  vlan    mask     port  client = DhcpLease
-        { dl_relay   = relay
+        { dl_relay   = Just relay
         , dl_router  = router
         , dl_dns     = dns
         , dl_circuit = circuit

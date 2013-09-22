@@ -107,7 +107,7 @@ lookupLease _ (SockAddrInet6 _ _ _ _) _ = Nothing
 lookupLease _ (SockAddrUnix _) _ = Nothing
 lookupLease leases (SockAddrInet _ host) opts = do
         circuitID <- getOption82 opts 
-        find (\lease -> (dl_relay lease == host) && (dl_circuit lease == circuitID)) leases
+        find (\lease -> (maybe True (==host) (dl_relay lease)) && (dl_circuit lease == circuitID)) leases
 
 getOption82   :: [DhcpOption] -> Maybe ByteString
 getOption82 = listToMaybe  . getCircuitId . getRelayAgents

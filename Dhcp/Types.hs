@@ -57,7 +57,7 @@ data DhcpReply
 
 data DhcpLease
     = DhcpLease
-    { dl_relay   :: HostAddress
+    { dl_relay   :: Maybe HostAddress
     , dl_router  :: IP
     , dl_dns     :: IP
     , dl_circuit :: ByteString
