@@ -1,3 +1,4 @@
+{-# LANGUAGE RecordWildCards #-}
 module Main
 where
 
@@ -105,9 +106,30 @@ mkOptions _ lease = subnetMask : router : dns : {- hostname : domainname : renew
 lookupLease :: [DhcpLease] -> SockAddr -> [DhcpOption] -> Maybe DhcpLease -- {{{
 lookupLease _ (SockAddrInet6 _ _ _ _) _ = Nothing
 lookupLease _ (SockAddrUnix _) _ = Nothing
-lookupLease leases (SockAddrInet _ host) opts = do
-        circuitID <- getOption82 opts 
-        find (\lease -> (maybe True (==host) (dl_relay lease)) && (dl_circuit lease == circuitID)) leases
+lookupLease leases (SockAddrInet _ host) opts = find (leaseMatches agentOpts) leases
+    where
+        agentOpts :: [AgentOption]
+        agentOpts = concat [agent | RelayAgent agent <- opts]
+
+        leaseMatches :: [AgentOption] -> DhcpLease -> Bool
+        leaseMatches opts DhcpLease{..} = relayOk && circuitOk && remoteOk
+            where
+                relayOk  = maybe True (==host) dl_relay
+                remoteOk = case dl_remote of
+                                Nothing -> True
+                                x@Just{} -> remote == dl_remote
+                circuitOk = case dl_circuit of
+                                Nothing -> True
+                                x@Just{} -> circuit == dl_circuit
+
+                remote  = listToMaybe [r | AgentRemoteID r <- opts]
+                circuit = listToMaybe [c | AgentCircuitID c <- opts]
+
+            {-
+            relayOk = RelayAgent agentOpt
+        dl_relay
+        dl_circuit -}
+
 
 getOption82   :: [DhcpOption] -> Maybe ByteString
 getOption82 = listToMaybe  . getCircuitId . getRelayAgents

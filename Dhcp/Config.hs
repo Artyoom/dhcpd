@@ -20,6 +20,7 @@ import qualified Data.ByteString.Char8 as C8
 import qualified Data.Map as M
 
 type LeaseDB = [DhcpLease]
+type TokenMap = Map ByteString ByteString
 
 getLeases :: IO (TVar (Map ByteString DhcpLease))
 getLeases = undefined
@@ -35,43 +36,67 @@ initLeases = do
             Fail _ _ msg -> error $ "Failed to read dhcp.conf: " ++ msg
 
 leasesLines :: Parser [DhcpLease]
-leasesLines = concat <$> many (leases <* word8 10)
+leasesLines = concat <$> leases `sepBy` A.takeWhile1 (inClass "\n\r")
 
 leases :: Parser [DhcpLease]
 leases = lease_dlink <|> lease_raw <|> lease_edge
 
-lease_dlink :: Parser [DhcpLease]
+tokenMap :: Parser TokenMap
+tokenMap = M.fromList <$> tokenPair `sepBy` blank
+    where
+        tokenPair :: Parser (ByteString, ByteString)
+        tokenPair = (,) <$> A.takeWhile1 (notInClass ":") <* char ':' <*> A.takeWhile1 (notInClass " \t")
+
+fparse :: Parser a -> ByteString -> a
+fparse p bs = case parseOnly p bs of
+                Right r -> r
+                Left e -> error $ "Failed to parse " ++ show bs
+
+
+findTokenMap :: TokenMap -> ByteString -> Parser a -> a
+findTokenMap tm bs p = fparse p $ M.findWithDefault e bs tm
+    where
+        e = error $ "Must specify " ++ show bs
+
+lookupTokenMap :: TokenMap -> ByteString -> Parser a -> Maybe a
+lookupTokenMap tm bs p = fparse p <$> M.lookup bs tm
+
+lease_dlink :: Parser[DhcpLease]
 lease_dlink = do
     string "dlink" <* blank
-    relay   <-  token "ip"     (i2h <$> ip)
-    vlan    <-  token "vlan"   decimal
-    router  <-  token "gw"     ip
-    dns     <-  token "dns"    ip
-    ports   <-  token "ports"  portSpec
-    base    <-  token_l "base" ip
-    mask    <-  char '/' *> decimal
-    return $ zipWith (mkLeaseDlink relay router dns vlan mask) ports (zipWith addToIP (map pred ports) (repeat base))
+    tmap <- tokenMap
+    let relay  = i2h <$> lookupTokenMap tmap "ip" ip
+        remote = lookupTokenMap tmap "remote" rawhex
+        vlan   = findTokenMap tmap "vlan" decimal
+        router = findTokenMap tmap "gw" ip
+        dns    = findTokenMap tmap "dns" ip
+        ports  = findTokenMap tmap "ports" portSpec
+        (base, mask) = findTokenMap tmap "base" ((,) <$> ip  <* char '/' <*> decimal)
+
+    return $ zipWith (mkLeaseDlink relay remote router dns vlan mask) ports (zipWith addToIP (map pred ports) (repeat base))
 
 lease_edge :: Parser [DhcpLease]
 lease_edge = do
     string "edge" <* blank
-    vlan    <-  token "vlan"   decimal
-    router  <-  token "gw"     ip
-    dns     <-  token "dns"    ip
-    ports   <-  token "ports"  portSpec
-    base    <-  token_l "base" ip
-    mask    <-  char '/' *> decimal
-    return $ zipWith (mkLeaseEdge router dns vlan mask) ports (zipWith addToIP (map pred ports) (repeat base))
+    tmap <- tokenMap
+    let remote = lookupTokenMap tmap "remote" rawhex
+        vlan   = findTokenMap tmap "vlan" decimal
+        router = findTokenMap tmap "gw" ip
+        dns    = findTokenMap tmap "dns" ip
+        ports  = findTokenMap tmap "ports"  portSpec
+        (base, mask) = findTokenMap tmap "base" ((,) <$> ip  <* char '/' <*> decimal)
+    return $ zipWith (mkLeaseEdge router remote dns vlan mask) ports (zipWith addToIP (map pred ports) (repeat base))
 
 lease_raw :: Parser [DhcpLease]
 lease_raw = do
     string "raw82" <* blank
-    circuit <- token "option82" rawhex
-    router  <- token "gw"     ip
-    dns     <- token "dns"    ip
-    client  <- token_l "client" ip
-    mask    <- char '/' *> decimal
-    return [mkLeaseRaw circuit router dns mask client]
+    tmap <- tokenMap
+    let circuit = lookupTokenMap tmap "option82" rawhex
+        remote  = lookupTokenMap tmap "remote" rawhex
+        router = findTokenMap tmap "gw" ip
+        dns    = findTokenMap tmap "dns" ip
+        (client, mask) = findTokenMap tmap "client" ((,) <$> ip  <* char '/' <*> decimal)
+    return [mkLeaseRaw circuit remote router dns mask client]
 
 
 rawhex :: Parser ByteString
@@ -92,16 +117,12 @@ hex2dec c = case () of
                   | c >= ord_ 'a' && c <= ord_ 'f' -> 10 + c - ord_ 'a'
                   | c >= ord_ 'A' && c <= ord_ 'F' -> 10 + c - ord_ 'A'
                   | otherwise -> error $ "invalid hex character: " ++ show (chr $ fromIntegral c)
-
     where
         ord_ :: Char -> Word8
         ord_ = fromIntegral . ord
 
 token :: String -> Parser t -> Parser t
 token prefix p = string (C8.pack (prefix ++ ":")) *> p <* blank
-
-token_l :: String -> Parser t -> Parser t
-token_l prefix p = string (C8.pack (prefix ++ ":")) *> p
 
 ip :: Parser IP
 ip = mkIP <$> decimal <* dot <*> decimal <* dot <*> decimal <* dot <*> decimal
@@ -124,36 +145,29 @@ ipSpec = (\(IPv4 a) (IPv4 z) -> map IPv4 [a..z]) <$> ip <* dash <*> ip
     where
         dash = word8 45
 
-mkLeaseDlink :: HostAddress -> IP -> IP -> Int -> Word8 -> Word8 -> IP -> DhcpLease
-mkLeaseDlink    relay         router dns  vlan    mask     port  client = DhcpLease
-        { dl_relay   = Just relay
-        , dl_router  = router
-        , dl_dns     = dns
-        , dl_circuit = circuit
-        , dl_client  = client
-        , dl_mask    = mask
-        }
+mkLeaseDlink :: Maybe HostAddress -> Maybe ByteString -> IP -> IP -> Int -> Word8 -> Word8 -> IP -> DhcpLease
+mkLeaseDlink dl_relay dl_remote dl_router dl_dns vlan dl_mask port dl_client = DhcpLease {..}
     where
-        circuit :: ByteString
-        circuit = B.pack [0, 4, vl, an, 0, port]
+        dl_circuit :: Maybe ByteString
+        dl_circuit = Just $ B.pack [0, 4, vl, an, 0, port]
         vl = fromIntegral $ vlan `div` 256
         an = fromIntegral $ vlan `mod` 256
 
 
 
-mkLeaseEdge :: IP -> IP -> Int -> Word8 -> Word8 -> IP -> DhcpLease
-mkLeaseEdge dl_router dl_dns vlan dl_mask port dl_client = DhcpLease{..}
+mkLeaseEdge :: IP -> Maybe ByteString -> IP -> Int -> Word8 -> Word8 -> IP -> DhcpLease
+mkLeaseEdge dl_router dl_remote dl_dns vlan dl_mask port dl_client = DhcpLease{..}
     where
         dl_relay :: Maybe HostAddress
         dl_relay = Nothing
-        dl_circuit :: ByteString
-        dl_circuit = B.pack [0, 4, vl, an, 0, port]
+        dl_circuit :: Maybe ByteString
+        dl_circuit = Just $ B.pack [0, 4, vl, an, 0, port]
         vl = fromIntegral $ vlan `div` 256
         an = fromIntegral $ vlan `mod` 256
 
 
-mkLeaseRaw :: ByteString -> IP -> IP -> Word8 -> IP -> DhcpLease
-mkLeaseRaw dl_circuit dl_router dl_dns dl_mask dl_client = DhcpLease {..}
+mkLeaseRaw :: Maybe ByteString -> Maybe ByteString -> IP -> IP -> Word8 -> IP -> DhcpLease
+mkLeaseRaw dl_circuit dl_remote dl_router dl_dns dl_mask dl_client = DhcpLease {..}
     where
         dl_relay = Nothing
 

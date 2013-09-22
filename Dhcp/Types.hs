@@ -60,7 +60,8 @@ data DhcpLease
     { dl_relay   :: Maybe HostAddress
     , dl_router  :: IP
     , dl_dns     :: IP
-    , dl_circuit :: ByteString
+    , dl_circuit :: Maybe ByteString
+    , dl_remote  :: Maybe ByteString
     , dl_client  :: IP
     , dl_mask    :: Word8
     } deriving (Show, Eq, Ord)
