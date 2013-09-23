@@ -67,13 +67,14 @@ lease_dlink = do
     tmap <- tokenMap
     let relay  = i2h <$> lookupTokenMap tmap "ip" ip
         remote = lookupTokenMap tmap "remote" rawhex
+        mac    = lookupTokenMap tmap "mac" hexmac
         vlan   = findTokenMap tmap "vlan" decimal
         router = findTokenMap tmap "gw" ip
         dns    = findTokenMap tmap "dns" ip
         ports  = findTokenMap tmap "ports" portSpec
         (base, mask) = findTokenMap tmap "base" ((,) <$> ip  <* char '/' <*> decimal)
 
-    return $ zipWith (mkLeaseDlink relay remote router dns vlan mask) ports (zipWith addToIP (map pred ports) (repeat base))
+    return $ zipWith (mkLeaseDlink mac relay remote router dns vlan mask) ports (zipWith addToIP (map pred ports) (repeat base))
 
 lease_edge :: Parser [DhcpLease]
 lease_edge = do
@@ -82,10 +83,11 @@ lease_edge = do
     let remote = lookupTokenMap tmap "remote" rawhex
         vlan   = findTokenMap tmap "vlan" decimal
         router = findTokenMap tmap "gw" ip
+        mac    = lookupTokenMap tmap "mac" hexmac
         dns    = findTokenMap tmap "dns" ip
         ports  = findTokenMap tmap "ports"  portSpec
         (base, mask) = findTokenMap tmap "base" ((,) <$> ip  <* char '/' <*> decimal)
-    return $ zipWith (mkLeaseEdge router remote dns vlan mask) ports (zipWith addToIP (map pred ports) (repeat base))
+    return $ zipWith (mkLeaseEdge mac router remote dns vlan mask) ports (zipWith addToIP (map pred ports) (repeat base))
 
 lease_raw :: Parser [DhcpLease]
 lease_raw = do
@@ -93,10 +95,11 @@ lease_raw = do
     tmap <- tokenMap
     let circuit = lookupTokenMap tmap "circuit" rawhex
         remote  = lookupTokenMap tmap "remote" rawhex
+        mac     = lookupTokenMap tmap "mac" hexmac
         router = findTokenMap tmap "gw" ip
         dns    = findTokenMap tmap "dns" ip
         (client, mask) = findTokenMap tmap "client" ((,) <$> ip  <* char '/' <*> decimal)
-    return [mkLeaseRaw circuit remote router dns mask client]
+    return [mkLeaseRaw mac circuit remote router dns mask client]
 
 
 rawhex :: Parser ByteString
@@ -110,6 +113,9 @@ rawhex = do
                 rest <- rawhex
                 return $ B.cons (16 * (hex2dec c1) + hex2dec c2) rest
         _ -> return B.empty
+
+hexmac :: Parser Mac
+hexmac = (mkMac . B.unpack) <$> rawhex
 
 hex2dec :: Word8 -> Word8
 hex2dec c = case () of
@@ -145,8 +151,8 @@ ipSpec = (\(IPv4 a) (IPv4 z) -> map IPv4 [a..z]) <$> ip <* dash <*> ip
     where
         dash = word8 45
 
-mkLeaseDlink :: Maybe HostAddress -> Maybe ByteString -> IP -> IP -> Int -> Word8 -> Word8 -> IP -> DhcpLease
-mkLeaseDlink dl_relay dl_remote dl_router dl_dns vlan dl_mask port dl_client = DhcpLease {..}
+mkLeaseDlink :: Maybe Mac -> Maybe HostAddress -> Maybe ByteString -> IP -> IP -> Int -> Word8 -> Word8 -> IP -> DhcpLease
+mkLeaseDlink dl_mac dl_relay dl_remote dl_router dl_dns vlan dl_mask port dl_client = DhcpLease {..}
     where
         dl_circuit :: Maybe ByteString
         dl_circuit = Just $ B.pack [0, 4, vl, an, 0, port]
@@ -155,8 +161,8 @@ mkLeaseDlink dl_relay dl_remote dl_router dl_dns vlan dl_mask port dl_client = D
 
 
 
-mkLeaseEdge :: IP -> Maybe ByteString -> IP -> Int -> Word8 -> Word8 -> IP -> DhcpLease
-mkLeaseEdge dl_router dl_remote dl_dns vlan dl_mask port dl_client = DhcpLease{..}
+mkLeaseEdge :: Maybe Mac -> IP -> Maybe ByteString -> IP -> Int -> Word8 -> Word8 -> IP -> DhcpLease
+mkLeaseEdge dl_mac dl_router dl_remote dl_dns vlan dl_mask port dl_client = DhcpLease{..}
     where
         dl_relay :: Maybe HostAddress
         dl_relay = Nothing
@@ -166,8 +172,8 @@ mkLeaseEdge dl_router dl_remote dl_dns vlan dl_mask port dl_client = DhcpLease{.
         an = fromIntegral $ vlan `mod` 256
 
 
-mkLeaseRaw :: Maybe ByteString -> Maybe ByteString -> IP -> IP -> Word8 -> IP -> DhcpLease
-mkLeaseRaw dl_circuit dl_remote dl_router dl_dns dl_mask dl_client = DhcpLease {..}
+mkLeaseRaw :: Maybe Mac -> Maybe ByteString -> Maybe ByteString -> IP -> IP -> Word8 -> IP -> DhcpLease
+mkLeaseRaw dl_mac dl_circuit dl_remote dl_router dl_dns dl_mask dl_client = DhcpLease {..}
     where
         dl_relay = Nothing
 

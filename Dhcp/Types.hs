@@ -62,6 +62,7 @@ data DhcpLease
     , dl_dns     :: IP
     , dl_circuit :: Maybe ByteString
     , dl_remote  :: Maybe ByteString
+    , dl_mac     :: Maybe Mac
     , dl_client  :: IP
     , dl_mask    :: Word8
     } deriving (Show, Eq, Ord)

@@ -81,8 +81,8 @@ via h = maybe "via broadcast" ((++) " via " . show) (h_gw h)
 
 makeDhcpReply :: [DhcpLease] -> SockAddr -> DhcpRequest -> Maybe DhcpReply
 makeDhcpReply db addr l = case l of
-            (DISCOVER header _ options) -> lookupLease db addr options >>= \lease -> return $ doDiscover header options lease
-            (REQUEST header ip options) -> lookupLease db addr options >>= \lease -> return $ doRequest header ip options lease
+            (DISCOVER header _ options) -> lookupLease header db addr options >>= \lease -> return $ doDiscover header options lease
+            (REQUEST header ip options) -> lookupLease header db addr options >>= \lease -> return $ doRequest header ip options lease
             (DECLINE _) -> Nothing
             RELEASE -> Nothing
             INFORM  -> Nothing
@@ -103,16 +103,16 @@ mkOptions _ lease = subnetMask : router : dns : {- hostname : domainname : renew
         router = RouterOption [dl_router $ lease]
         dns = DomainNameServer [dl_dns $ lease]
 
-lookupLease :: [DhcpLease] -> SockAddr -> [DhcpOption] -> Maybe DhcpLease -- {{{
-lookupLease _ (SockAddrInet6 _ _ _ _) _ = Nothing
-lookupLease _ (SockAddrUnix _) _ = Nothing
-lookupLease leases (SockAddrInet _ host) opts = find (leaseMatches agentOpts) leases
+lookupLease :: BootpHeader -> [DhcpLease] -> SockAddr -> [DhcpOption] -> Maybe DhcpLease -- {{{
+lookupLease _ _ (SockAddrInet6 _ _ _ _) _ = Nothing
+lookupLease _ _ (SockAddrUnix _) _ = Nothing
+lookupLease bootp leases (SockAddrInet _ host) opts = find (leaseMatches agentOpts) leases
     where
         agentOpts :: [AgentOption]
         agentOpts = concat [agent | RelayAgent agent <- opts]
 
         leaseMatches :: [AgentOption] -> DhcpLease -> Bool
-        leaseMatches opts DhcpLease{..} = relayOk && circuitOk && remoteOk
+        leaseMatches opts DhcpLease{..} = relayOk && circuitOk && remoteOk && macOk
             where
                 relayOk  = maybe True (==host) dl_relay
                 remoteOk = case dl_remote of
@@ -121,6 +121,10 @@ lookupLease leases (SockAddrInet _ host) opts = find (leaseMatches agentOpts) le
                 circuitOk = case dl_circuit of
                                 Nothing -> True
                                 x@Just{} -> circuit == dl_circuit
+
+                macOk = case dl_mac of
+                                Nothing -> True
+                                Just mac -> mac == h_mac bootp
 
                 remote  = listToMaybe [r | AgentRemoteID r <- opts]
                 circuit = listToMaybe [c | AgentCircuitID c <- opts]
