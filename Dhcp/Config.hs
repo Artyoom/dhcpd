@@ -36,7 +36,7 @@ initLeases = do
             Fail _ _ msg -> error $ "Failed to read dhcp.conf: " ++ msg
 
 leasesLines :: Parser [DhcpLease]
-leasesLines = concat <$> leases `sepBy` A.takeWhile1 (inClass "\n\r")
+leasesLines = concat <$> leases `sepBy` A.takeWhile1 (inClass "\n\r") <* A.takeWhile1 (inClass "\r\n")
 
 leases :: Parser [DhcpLease]
 leases = lease_dlink <|> lease_raw <|> lease_edge
@@ -45,7 +45,7 @@ tokenMap :: Parser TokenMap
 tokenMap = M.fromList <$> tokenPair `sepBy` blank
     where
         tokenPair :: Parser (ByteString, ByteString)
-        tokenPair = (,) <$> A.takeWhile1 (notInClass ":") <* char ':' <*> A.takeWhile1 (notInClass " \t")
+        tokenPair = (,) <$> A.takeWhile1 (notInClass ":") <* char ':' <*> A.takeWhile1 (notInClass " \t\n\r")
 
 fparse :: Parser a -> ByteString -> a
 fparse p bs = case parseOnly p bs of
@@ -138,7 +138,7 @@ ip = mkIP <$> decimal <* dot <*> decimal <* dot <*> decimal <* dot <*> decimal
 i2h :: IP -> HostAddress
 i2h (IPv4 ip) = flipbytes $ fromIntegral ip
 
-blank = A.takeWhile1 isSpace_w8
+blank = A.takeWhile1 (inClass "\t ")
 
 portSpec :: Parser [Word8]
 portSpec = concat <$> sepBy1 (portRange <|> port) (char ',')
