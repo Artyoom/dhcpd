@@ -39,7 +39,10 @@ leasesLines :: Parser [DhcpLease]
 leasesLines = concat <$> leases `sepBy` A.takeWhile1 (inClass "\n\r") <* A.takeWhile1 (inClass "\r\n")
 
 leases :: Parser [DhcpLease]
-leases = lease_dlink <|> lease_raw <|> lease_edge
+leases = lease_dlink <|> lease_raw <|> lease_edge <|> comment
+
+comment :: Parser [a]
+comment = [] <$ char '#' <* A.takeWhile (notInClass "\r\n")
 
 tokenMap :: Parser TokenMap
 tokenMap = M.fromList <$> tokenPair `sepBy` blank
